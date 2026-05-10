@@ -1,0 +1,806 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { initializeApp } from "firebase/app";
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, doc, setDoc, onSnapshot } from "firebase/firestore";
+import { 
+  Scale, Calculator, Plus, Trash2, Edit3, Save, AlertCircle, 
+  ShieldAlert, Download, Upload, Percent, PlusCircle, X, GripVertical, Check, Copy, Search, Eye, EyeOff
+} from 'lucide-react';
+
+// ==========================================
+// 1. Firebase Initialization
+// ==========================================
+const userProvidedConfig = {
+  apiKey: "AIzaSyBZRWfUdwo8x8lnZtAEPVNRU-CKZyZTjdw",
+  authDomain: "jsvtb-48aff.firebaseapp.com",
+  projectId: "jsvtb-48aff",
+  storageBucket: "jsvtb-48aff.firebasestorage.app",
+  messagingSenderId: "1010311063638",
+  appId: "1:1010311063638:web:870c56def83e1de1df73f7",
+  measurementId: "G-VV0PYS1VP0"
+};
+
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+  ? JSON.parse(__firebase_config) 
+  : userProvidedConfig;
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const globalAppId = typeof __app_id !== 'undefined' ? __app_id : 'jsvtb-48aff';
+
+// ==========================================
+// 2. 初始預設資料 
+// ==========================================
+const INITIAL_CATEGORIES = {
+  "交通相關": [
+    "違反交通號誌", "違規停車", "超速或危險駕駛", "無照駕駛", "肇事逃逸", 
+    "駕駛非自己名下車輛", "未禮讓緊急車輛", "利用交通工具拒捕", "徒步拒捕", 
+    "搶奪公職車輛", "酒後駕駛", "惡意衝撞市民", "阻礙交通", "噪音駕駛", "偷車罪"
+  ],
+  "民事或傷害罪行相關": [
+    "威脅或恐嚇市民", "誤傷", "勒索市民", "綁架市民", "傷害市民", "擊暈市民", 
+    "傷害公職人員", "綁架公職人員", "擊暈公職人員", "妨礙公務", "公然侮辱", 
+    "公共危險", "妨害風化", "性騷擾", "情色交易", "毀損他人財物", "盜竊他人財物", 
+    "擾亂治安", "公眾場所制造噪音", "侵犯他人隱私或竊聽竊錄罪", "詐騙", 
+    "未能出示身份證明文件", "非法途徑取得執照", "越獄", "協助越獄", 
+    "不服從警方指令", "在公共場所揮舞武器", "非法入侵斯私人場所", "公共滋擾", 
+    "干擾審訊或調查", "公共猥褻行為", "擅闖管制區域", "妨礙拘捕"
+  ],
+  "違禁品相關": [
+    "非法持有CLASS A槍械", "非法持有CLASS B槍械", "非法持有未經登記的槍械", 
+    "販賣非法槍械", "持有危險物品", "持有贓物", "販賣非法物品", "持有黑錢/非法物品", 
+    "販賣毒品", "吸毒", "非法持有毒品", "非法持有大量毒品", "非法種植受管制植物", 
+    "未經許可持有公職專用物品", "非法販賣公職專用物品", "未誠實告知執法人員身上持有傷害性物品", 
+    "非法使用槍械"
+  ],
+  "動物相關": [
+    "虐待動物", "虐待動物致其死亡", "持有保育類相關產物", "持有保育類動物", 
+    "販賣保育類相關產物或本體"
+  ],
+  "搶劫或走私相關": [
+    "毀損金融設施", "非法走私車輛", "協助不法組織進行非法行為", "搶劫市民", 
+    "搶劫商店", "搶劫醫療物資", "搶劫珠寶", "搶劫小銀行", "搶劫太平洋銀行", 
+    "搶劫同謀", "挾持交通工具", "非法武裝集會", "非法收購贓物", "非法運送違禁品", 
+    "假冒公職人員", "未經許可穿著公職人員制服"
+  ]
+};
+
+const generateDefaultRules = () => {
+  const rules = {};
+  for (const [category, offenses] of Object.entries(INITIAL_CATEGORIES)) {
+    rules[category] = offenses.map(name => ({
+      name, prison: 0, fine: 0, labor: 0
+    }));
+  }
+  return rules;
+};
+
+// ==========================================
+// 3. 主應用程式組件
+// ==========================================
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [rulesData, setRulesData] = useState({});
+  const [selectedItems, setSelectedItems] = useState([]);
+  
+  // 編輯相關 State
+  const [isEditing, setIsEditing] = useState(false);
+  const [editFormData, setEditFormData] = useState([]);
+  
+  // 總結與載入狀態
+  const [isLoading, setIsLoading] = useState(true);
+  const [discount, setDiscount] = useState(0); 
+  const [showDetailsInSummary, setShowDetailsInSummary] = useState(false);
+  const [showDetailsInMenu, setShowDetailsInMenu] = useState(false); // 控制選單是否顯示數值
+  const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
+  const fileInputRef = useRef(null);
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  // 搜尋相關 State
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchType, setSearchType] = useState('rule'); // 'rule' | 'category'
+
+  // 拖曳排序 State
+  const [draggedItem, setDraggedItem] = useState(null);
+  const [dragOverItem, setDragOverItem] = useState(null);
+
+  const getRulesDocRef = () => {
+    if (typeof __firebase_config !== 'undefined') {
+      return doc(db, 'artifacts', globalAppId, 'public', 'data', 'PCT', 'global_rules');
+    }
+    return doc(db, 'PCT', 'global_rules');
+  };
+
+  // --- Auth & Data Sync ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) {
+        console.error("Auth Error:", error);
+      }
+    };
+    initAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const rulesRef = getRulesDocRef();
+    const unsubscribe = onSnapshot(rulesRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setRulesData(docSnap.data().rules);
+      } else {
+        const defaultData = generateDefaultRules();
+        setDoc(rulesRef, { rules: defaultData }).catch(console.error);
+        setRulesData(defaultData);
+      }
+      setIsLoading(false);
+    }, (error) => {
+      console.error("Firestore onSnapshot Error:", error);
+      setIsLoading(false);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- 搜尋過濾邏輯 ---
+  const filteredRules = useMemo(() => {
+    if (!searchTerm.trim()) return rulesData;
+    const term = searchTerm.toLowerCase();
+    const result = {};
+
+    for (const [catName, items] of Object.entries(rulesData)) {
+      if (searchType === 'category') {
+        if (catName.toLowerCase().includes(term)) {
+          result[catName] = items;
+        }
+      } else {
+        const matchedItems = items.filter(item => item.name.toLowerCase().includes(term));
+        if (matchedItems.length > 0) {
+          result[catName] = matchedItems;
+        }
+      }
+    }
+    return result;
+  }, [rulesData, searchTerm, searchType]);
+
+  // --- 選取操作 ---
+  const handleAddItem = (item) => {
+    if (selectedItems.some(selected => selected.name === item.name)) return;
+    setSelectedItems([...selectedItems, { ...item, uniqueId: Date.now() + Math.random() }]);
+  };
+
+  const handleRemoveItem = (uniqueId) => {
+    setSelectedItems(selectedItems.filter(item => item.uniqueId !== uniqueId));
+  };
+
+  const requireConfirm = (message, onConfirm) => {
+    setConfirmDialog({ isOpen: true, message, onConfirm });
+  };
+
+  const handleClearAll = () => {
+    requireConfirm("確定要清空已選清單嗎？", () => {
+      setSelectedItems([]);
+      setDiscount(0);
+    });
+  };
+
+  // --- 編輯功能 ---
+  const startEditing = () => {
+    const arrayFormat = Object.entries(rulesData).map(([catName, items]) => ({
+      catName,
+      items: items.map(item => ({ ...item })) 
+    }));
+    setEditFormData(arrayFormat);
+    setIsEditing(true);
+  };
+
+  const saveEdits = async () => {
+    if (!user) return;
+    try {
+      setIsLoading(true);
+      const newRulesData = {};
+      editFormData.forEach(cat => {
+        const cleanCatName = cat.catName.trim();
+        if (cleanCatName) {
+          newRulesData[cleanCatName] = cat.items.filter(item => item.name.trim() !== '');
+        }
+      });
+      await setDoc(getRulesDocRef(), { rules: newRulesData });
+      setIsEditing(false);
+    } catch (err) {
+      console.error("Error saving edits:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const cancelEdits = () => {
+    requireConfirm("確定要取消編輯嗎？未儲存的變更將遺失。", () => {
+      setIsEditing(false);
+    });
+  };
+
+  // --- 編輯表單事件 ---
+  const handleEditCategoryName = (catIndex, newName) => {
+    const newData = [...editFormData];
+    newData[catIndex].catName = newName;
+    setEditFormData(newData);
+  };
+
+  const handleEditItem = (catIndex, itemIndex, field, value) => {
+    const newData = [...editFormData];
+    newData[catIndex].items[itemIndex][field] = field === 'name' ? value : (Number(value) || 0);
+    setEditFormData(newData);
+  };
+
+  const handleAddCategory = () => {
+    setEditFormData([{ catName: '新增分類', items: [] }, ...editFormData]);
+  };
+
+  const handleRemoveCategory = (catIndex) => {
+    requireConfirm("確定刪除此分類與其下所有項目嗎？", () => {
+      const newData = [...editFormData];
+      newData.splice(catIndex, 1);
+      setEditFormData(newData);
+    });
+  };
+
+  const handleAddItemToCategory = (catIndex) => {
+    const newData = [...editFormData];
+    newData[catIndex].items.push({ name: '新條目', prison: 0, fine: 0, labor: 0 });
+    setEditFormData(newData);
+  };
+
+  const handleRemoveItemFromCategory = (catIndex, itemIndex) => {
+    const newData = [...editFormData];
+    newData[catIndex].items.splice(itemIndex, 1);
+    setEditFormData(newData);
+  };
+
+  // --- 拖曳排序 (Drag and Drop) ---
+  const handleDragStart = (e, catIdx, itemIdx) => {
+    if (e.target.tagName.toLowerCase() === 'input') {
+      e.preventDefault();
+      return;
+    }
+    setDraggedItem({ catIdx, itemIdx });
+    setTimeout(() => setDragOverItem(null), 0);
+  };
+
+  const handleDragOver = (e, catIdx, itemIdx) => {
+    e.preventDefault(); 
+    if (!dragOverItem || dragOverItem.catIdx !== catIdx || dragOverItem.itemIdx !== itemIdx) {
+      setDragOverItem({ catIdx, itemIdx });
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+    setDragOverItem(null);
+  };
+
+  const handleDrop = (e, targetCatIdx, targetItemIdx) => {
+    e.preventDefault();
+    if (!draggedItem) return;
+
+    const { catIdx: sourceCatIdx, itemIdx: sourceItemIdx } = draggedItem;
+
+    if (sourceCatIdx === targetCatIdx && sourceItemIdx === targetItemIdx) {
+      setDraggedItem(null);
+      setDragOverItem(null);
+      return;
+    }
+
+    const newData = [...editFormData];
+    const [movedItem] = newData[sourceCatIdx].items.splice(sourceItemIdx, 1);
+    newData[targetCatIdx].items.splice(targetItemIdx, 0, movedItem);
+
+    setEditFormData(newData);
+    setDraggedItem(null);
+    setDragOverItem(null);
+  };
+
+  // --- 匯出/匯入 ---
+  const handleExport = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(rulesData, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "pct_rules_backup.json");
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
+  const handleImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const json = JSON.parse(event.target.result);
+        if (typeof json === 'object' && json !== null) {
+          requireConfirm("確定要覆蓋現有資料庫嗎？", async () => {
+             await setDoc(getRulesDocRef(), { rules: json });
+          });
+        }
+      } catch(err) {
+        console.error("無效的 JSON 檔案");
+      }
+      e.target.value = null; // reset
+    };
+    reader.readAsText(file);
+  };
+
+  // --- 計算邏輯 ---
+  const rawTotals = selectedItems.reduce((acc, item) => {
+    acc.prison += item.prison || 0;
+    acc.fine += item.fine || 0;
+    acc.labor += item.labor || 0;
+    return acc;
+  }, { prison: 0, fine: 0, labor: 0 });
+
+  const discountMultiplier = (100 - discount) / 100;
+  const finalTotals = {
+    prison: Math.round(rawTotals.prison * discountMultiplier),
+    fine: Math.round(rawTotals.fine * discountMultiplier),
+    labor: Math.round(rawTotals.labor * discountMultiplier)
+  };
+
+  // --- 複製功能 ---
+  const handleCopyText = () => {
+    if (selectedItems.length === 0) return;
+
+    let text = "【違規/犯罪項目紀錄】\n";
+    selectedItems.forEach((item, idx) => {
+      text += `${idx + 1}. ${item.name}`;
+      if (showDetailsInSummary) {
+        text += ` (刑:${item.prison} 罰:$${item.fine.toLocaleString()} 勞:${item.labor})`;
+      }
+      text += "\n";
+    });
+
+    text += "\n【總計裁罰】\n";
+    if (discount > 0) text += `套用折扣：減免 ${discount}%\n`;
+    text += `總刑期: ${finalTotals.prison} 個月\n`;
+    text += `總罰金: $${finalTotals.fine.toLocaleString()}\n`;
+    text += `總勞動: ${finalTotals.labor} 小時`;
+
+    try {
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (err) {
+      console.error('Copy failed:', err);
+    }
+  };
+
+  // --- UI ---
+  if (isLoading && Object.keys(rulesData).length === 0) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-950">
+        <div className="flex flex-col items-center text-slate-400">
+          <ShieldAlert className="w-12 h-12 mb-4 animate-pulse text-blue-500" />
+          <p className="text-lg font-medium">存取 PCT 資料庫中...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans flex flex-col selection:bg-blue-500/30">
+      
+      {/* Header */}
+      <header className="bg-slate-900 border-b border-slate-800 shadow-xl p-4 sticky top-0 z-20">
+        <div className="max-w-[1600px] mx-auto flex flex-col lg:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-3">
+            <Scale className="w-8 h-8 text-blue-400" />
+            <div className="flex flex-col justify-center">
+              <h1 className="text-xl font-bold tracking-wide text-white leading-tight">麻糬RP-警政署罰金罰緩刑期計算工具</h1>
+              <p className="text-xs text-slate-400 leading-tight mt-0.5">Database: PCT (Global Network)</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3 flex-wrap justify-center">
+            {!isEditing && (
+              <div className="flex bg-slate-800 rounded-md border border-slate-700 overflow-hidden mr-2">
+                <button onClick={handleExport} title="匯出設定檔" className="p-2 hover:bg-slate-700 text-slate-300 transition border-r border-slate-700">
+                  <Download className="w-4 h-4" />
+                </button>
+                <button onClick={() => fileInputRef.current.click()} title="匯入設定檔" className="p-2 hover:bg-slate-700 text-slate-300 transition">
+                  <Upload className="w-4 h-4" />
+                </button>
+                <input type="file" accept=".json" ref={fileInputRef} onChange={handleImport} className="hidden" />
+              </div>
+            )}
+
+            {!isEditing ? (
+              <button 
+                onClick={startEditing}
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 transition px-4 py-2 rounded-md text-sm font-medium border border-slate-700 text-white"
+              >
+                <Edit3 className="w-4 h-4" /> 進入資料庫編輯模式
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button 
+                  onClick={cancelEdits}
+                  className="bg-slate-800 border border-slate-700 hover:bg-slate-700 transition px-4 py-2 rounded-md text-sm font-medium text-white"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={saveEdits}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 transition px-4 py-2 rounded-md text-sm font-medium text-white"
+                >
+                  <Save className="w-4 h-4" /> 儲存至資料庫
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Layout */}
+      <main className="flex-1 max-w-[1600px] mx-auto w-full p-4 flex flex-col lg:flex-row gap-6 relative">
+        
+        {/* Left Section: All Categories & Items */}
+        <div className="flex-1 flex flex-col gap-5">
+          
+          {/* 搜尋列與控制列 (僅在瀏覽模式顯示) */}
+          {!isEditing && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col sm:flex-row gap-3 shadow-sm">
+              <div className="flex-shrink-0">
+                <select 
+                  value={searchType}
+                  onChange={(e) => setSearchType(e.target.value)}
+                  className="w-full sm:w-auto bg-slate-800 border border-slate-700 text-slate-200 rounded-lg px-4 py-2.5 focus:border-blue-500 outline-none transition cursor-pointer"
+                >
+                  <option value="rule">🔍 找罰則</option>
+                  <option value="category">📁 找分類</option>
+                </select>
+              </div>
+              <div className="flex-1 relative">
+                <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-500">
+                  <Search className="w-5 h-5" />
+                </div>
+                <input 
+                  type="text" 
+                  placeholder={searchType === 'rule' ? "請輸入罰則關鍵字 (如：槍械、超速)..." : "請輸入分類關鍵字..."}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition"
+                />
+                {searchTerm && (
+                  <button 
+                    onClick={() => setSearchTerm('')}
+                    className="absolute inset-y-0 right-3 flex items-center text-slate-500 hover:text-slate-300"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              {/* 開關：是否顯示選單數值 */}
+              <button 
+                onClick={() => setShowDetailsInMenu(!showDetailsInMenu)}
+                className={`flex-shrink-0 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border transition font-medium text-sm ${
+                  showDetailsInMenu
+                    ? 'bg-blue-600/20 border-blue-500/50 text-blue-400'
+                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-300'
+                }`}
+                title={showDetailsInMenu ? "隱藏罰則細節" : "顯示罰則細節"}
+              >
+                {showDetailsInMenu ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showDetailsInMenu ? "隱藏數值" : "顯示數值"}
+              </button>
+            </div>
+          )}
+
+          {isEditing && (
+            <div className="bg-amber-900/20 border border-amber-700/50 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <span className="text-amber-400 flex items-center gap-2 text-sm font-medium">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" /> 現在是編輯模式，您可以修改分類名稱、條款名稱與數值。
+              </span>
+              <button onClick={handleAddCategory} className="flex-shrink-0 flex items-center justify-center gap-1 bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded transition font-medium">
+                <PlusCircle className="w-4 h-4" /> 新增分類
+              </button>
+            </div>
+          )}
+
+          {/* Render Edit Mode */}
+          {isEditing && editFormData.map((cat, catIdx) => (
+            <div key={catIdx} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
+              <div className="bg-slate-800/80 border-b border-slate-700 p-3 flex justify-between items-center">
+                <div className="flex items-center gap-2 w-full max-w-md">
+                  <input 
+                    value={cat.catName} 
+                    onChange={(e) => handleEditCategoryName(catIdx, e.target.value)}
+                    placeholder="輸入分類名稱"
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded px-3 py-1.5 text-white font-bold focus:ring-1 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <button onClick={() => handleRemoveCategory(catIdx)} className="text-slate-500 hover:text-red-400 p-2">
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-4 space-y-3">
+                {cat.items.map((item, itemIdx) => (
+                  <div 
+                    key={itemIdx} 
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, catIdx, itemIdx)}
+                    onDragOver={(e) => handleDragOver(e, catIdx, itemIdx)}
+                    onDragEnd={handleDragEnd}
+                    onDrop={(e) => handleDrop(e, catIdx, itemIdx)}
+                    className={`flex flex-col md:flex-row md:items-center gap-3 bg-slate-800/50 p-3 rounded-lg border relative group transition-colors ${
+                      dragOverItem?.catIdx === catIdx && dragOverItem?.itemIdx === itemIdx 
+                        ? 'border-blue-500 border-t-4' 
+                        : 'border-slate-700/50'
+                    }`}
+                  >
+                    <div className="cursor-grab active:cursor-grabbing p-1 text-slate-500 hover:text-slate-300 hidden md:block">
+                      <GripVertical className="w-5 h-5" />
+                    </div>
+                    
+                    <input 
+                      value={item.name} 
+                      onChange={(e) => handleEditItem(catIdx, itemIdx, 'name', e.target.value)}
+                      placeholder="條款名稱"
+                      className="flex-1 min-w-[200px] bg-slate-900 border border-slate-700 rounded px-3 py-2 text-white focus:ring-1 focus:ring-blue-500 outline-none"
+                    />
+                    <div className="flex gap-3 flex-wrap">
+                      <label className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded border border-slate-700">
+                        <span className="text-slate-400 text-sm whitespace-nowrap">刑期(月)</span>
+                        <input type="number" min="0" value={item.prison} onChange={(e) => handleEditItem(catIdx, itemIdx, 'prison', e.target.value)} className="w-16 bg-transparent text-white outline-none text-right" />
+                      </label>
+                      <label className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded border border-slate-700">
+                        <span className="text-slate-400 text-sm whitespace-nowrap">罰金($)</span>
+                        <input type="number" min="0" step="1000" value={item.fine} onChange={(e) => handleEditItem(catIdx, itemIdx, 'fine', e.target.value)} className="w-20 bg-transparent text-white outline-none text-right" />
+                      </label>
+                      <label className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded border border-slate-700">
+                        <span className="text-slate-400 text-sm whitespace-nowrap">勞動(時)</span>
+                        <input type="number" min="0" value={item.labor} onChange={(e) => handleEditItem(catIdx, itemIdx, 'labor', e.target.value)} className="w-16 bg-transparent text-white outline-none text-right" />
+                      </label>
+                    </div>
+                    <button onClick={() => handleRemoveItemFromCategory(catIdx, itemIdx)} className="absolute -right-2 -top-2 bg-red-900 text-red-200 rounded-full p-1 opacity-0 group-hover:opacity-100 transition shadow hover:bg-red-800">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                <button onClick={() => handleAddItemToCategory(catIdx)} className="w-full py-2 border-2 border-dashed border-slate-700 rounded-lg text-slate-400 hover:text-white hover:border-slate-500 hover:bg-slate-800 transition flex items-center justify-center gap-2">
+                  <Plus className="w-4 h-4" /> 新增條款至此分類
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {/* Render View Mode */}
+          {!isEditing && (
+            <>
+              {Object.keys(filteredRules).length === 0 ? (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-12 flex flex-col items-center justify-center text-slate-500">
+                  <Search className="w-12 h-12 mb-3 opacity-20" />
+                  <p>找不到符合「{searchTerm}」的資料</p>
+                  <p className="text-sm mt-1">請嘗試使用其他關鍵字或更換搜尋模式</p>
+                </div>
+              ) : (
+                <div className="columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-5">
+                  {Object.entries(filteredRules).map(([catName, items]) => (
+                    <div key={catName} className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm break-inside-avoid mb-5">
+                      <div className="bg-slate-800/80 border-b border-slate-800 p-2.5 px-4">
+                        <h2 className="font-bold text-white text-base">{catName}</h2>
+                      </div>
+                      
+                      {/* 客製化滾動軸：替換預設的 scrollbar-xxx 樣式 */}
+                      <div className="divide-y divide-slate-800/50 max-h-[45vh] overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-slate-900 [&::-webkit-scrollbar-track]:rounded-b-xl [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
+                        {items.map((item) => {
+                          const isSelected = selectedItems.some(selected => selected.name === item.name);
+                          return (
+                            <div key={item.name} className="p-2 px-3 hover:bg-slate-800/40 transition flex items-center justify-between gap-3 min-h-[44px]">
+                              <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                <h3 className="font-medium text-slate-200 text-sm truncate">{item.name}</h3>
+                                {showDetailsInMenu && (
+                                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
+                                    <span className="flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-red-500/80"></span> 刑:{item.prison}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-green-500/80"></span> 罰:${item.fine.toLocaleString()}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500/80"></span> 勞:{item.labor}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              <button 
+                                onClick={() => handleAddItem(item)}
+                                disabled={isSelected}
+                                className={`flex-shrink-0 flex items-center justify-center transition w-8 h-8 rounded-lg font-medium ${
+                                  isSelected 
+                                    ? 'bg-green-600/20 text-green-500 cursor-not-allowed'
+                                    : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'
+                                }`}
+                                title={isSelected ? "已加入" : "加入"}
+                              >
+                                {isSelected ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {items.length === 0 && (
+                          <div className="p-4 text-slate-500 text-sm">此分類尚無條款</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Right Section: Output Summary (Receipt Style) */}
+        <div className="lg:w-[400px] flex-shrink-0">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden sticky top-24 flex flex-col max-h-[85vh]">
+            
+            <div className="p-4 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
+              <h2 className="font-semibold flex items-center gap-2 text-white">
+                <Calculator className="w-5 h-5 text-blue-400" /> 裁罰結果總表
+              </h2>
+              <div className="flex gap-3 items-center">
+                <label className="text-xs text-slate-400 flex items-center gap-1.5 cursor-pointer hover:text-slate-300 transition">
+                  <input 
+                    type="checkbox" 
+                    checked={showDetailsInSummary} 
+                    onChange={(e) => setShowDetailsInSummary(e.target.checked)}
+                    className="rounded border-slate-700 bg-slate-800 accent-blue-500 w-3.5 h-3.5"
+                  />
+                  顯示數值
+                </label>
+                {selectedItems.length > 0 && (
+                  <button onClick={handleClearAll} className="text-slate-400 hover:text-red-400 transition" title="清空">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Discount Slider */}
+            <div className="p-4 bg-slate-900 border-b border-slate-800">
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-slate-400 flex items-center gap-1"><Percent className="w-4 h-4"/> 裁罰折扣 (認罪/減刑)</span>
+                <span className="text-blue-400 font-bold">{discount}%</span>
+              </div>
+              <input 
+                type="range" min="0" max="100" step="1" 
+                value={discount} 
+                onChange={(e) => setDiscount(Number(e.target.value))}
+                className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+            </div>
+            
+            {/* Direct Text Output Area - 客製化滾動軸 */}
+            <div className="p-4 flex-1 overflow-y-auto bg-[#0a0f1a] font-mono text-sm leading-relaxed text-slate-300 selection:bg-blue-500/50 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-[#0a0f1a] [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-600">
+              {selectedItems.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-600">
+                  <p>尚未選擇任何違規項目</p>
+                  <p className="text-xs mt-2">請從左側點擊「加入」</p>
+                </div>
+              ) : (
+                <div className="whitespace-pre-wrap">
+                  <div className="text-white font-bold mb-2">【違規/犯罪項目紀錄】</div>
+                  {selectedItems.map((item, idx) => (
+                    <div key={item.uniqueId} className="mb-1 hover:bg-slate-800/50 rounded px-2 py-0.5 -mx-2 relative group leading-snug">
+                      <div className="pr-12">
+                        <span className="text-slate-500 mr-1">{idx + 1}.</span>
+                        <span>{item.name}</span>
+                        {showDetailsInSummary && (
+                          <span className="text-slate-500 ml-2 whitespace-nowrap">
+                            (刑:{item.prison} 罰:${item.fine.toLocaleString()} 勞:{item.labor})
+                          </span>
+                        )}
+                      </div>
+                      <button 
+                        onClick={() => handleRemoveItem(item.uniqueId)} 
+                        className="absolute right-1 top-0.5 px-2 py-0.5 text-xs bg-red-900/80 text-white opacity-0 group-hover:opacity-100 transition rounded select-none"
+                      >
+                        移除
+                      </button>
+                    </div>
+                  ))}
+                  
+                  <div className="text-white font-bold mt-6 mb-2 border-t border-slate-700/50 pt-4">【總計裁罰】</div>
+                  {discount > 0 && (
+                    <div className="text-blue-400 mb-1">
+                      套用折扣：減免 {discount}% 
+                    </div>
+                  )}
+                  <div className="mb-1 text-slate-300">
+                    總刑期:
+                    {discount > 0 && <span className="line-through text-slate-600 mx-2">{rawTotals.prison}</span>}
+                    <span className="text-red-400 font-bold ml-1">{finalTotals.prison} 個月</span>
+                  </div>
+                  <div className="mb-1 text-slate-300">
+                    總罰金:
+                    {discount > 0 && <span className="line-through text-slate-600 mx-2">${rawTotals.fine.toLocaleString()}</span>}
+                    <span className="text-green-400 font-bold ml-1">${finalTotals.fine.toLocaleString()}</span>
+                  </div>
+                  <div className="mb-1 text-slate-300">
+                    總勞動:
+                    {discount > 0 && <span className="line-through text-slate-600 mx-2">{rawTotals.labor}</span>}
+                    <span className="text-amber-400 font-bold ml-1">{finalTotals.labor} 小時</span>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Footer with Copy Button */}
+            <div className="p-3 bg-slate-950 flex flex-col gap-2 border-t border-slate-800">
+              <button 
+                onClick={handleCopyText}
+                disabled={selectedItems.length === 0}
+                className={`w-full flex justify-center items-center gap-2 py-2 rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                  copySuccess 
+                    ? 'bg-green-600 text-white hover:bg-green-500' 
+                    : 'bg-blue-600 text-white hover:bg-blue-500'
+                }`}
+              >
+                {copySuccess ? (
+                  <><Check className="w-5 h-5" /> 已複製到剪貼簿</>
+                ) : (
+                  <><Copy className="w-5 h-5" /> 一鍵複製結果</>
+                )}
+              </button>
+              <div className="text-center text-xs text-slate-500">
+                💡 提示：點擊按鈕即可複製完美排版的裁罰紀錄
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Confirm Modal */}
+        {confirmDialog.isOpen && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-sm w-full shadow-2xl">
+              <h3 className="text-lg font-medium text-white mb-6 leading-relaxed">{confirmDialog.message}</h3>
+              <div className="flex justify-end gap-3">
+                <button 
+                  onClick={() => setConfirmDialog({ isOpen: false, message: '', onConfirm: null })} 
+                  className="px-4 py-2 rounded-lg text-slate-300 hover:bg-slate-800 transition text-sm font-medium"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={() => { 
+                    if(confirmDialog.onConfirm) confirmDialog.onConfirm(); 
+                    setConfirmDialog({ isOpen: false, message: '', onConfirm: null }); 
+                  }} 
+                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition text-sm font-medium"
+                >
+                  確定
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </main>
+    </div>
+  );
+}
