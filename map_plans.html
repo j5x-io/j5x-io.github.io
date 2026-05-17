@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>大熊寶殿-GTARP賽道規劃工具</title>
+    <title>賽道規劃工具</title>
     <!-- 引入 Tailwind CSS 作為快速排版工具 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -316,6 +316,27 @@
         </div>
     </div>
 
+    <!-- 截圖失敗專用提示模態框 (需手動關閉) -->
+    <div id="screenshot-error-modal" class="hidden fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[100]">
+        <div class="bg-[#1e1e1e] p-6 rounded-lg shadow-2xl w-96 border-2 border-red-500 text-gray-200 relative">
+            <button id="btn-close-error" class="absolute top-3 right-4 text-gray-400 hover:text-white font-bold text-2xl leading-none transition-colors">&times;</button>
+            <h3 class="text-lg font-bold mb-4 text-red-400">⚠️ 截圖失敗 (安全性限制)</h3>
+            <p class="text-sm mb-4 text-gray-300 leading-relaxed">
+                由於瀏覽器的跨域安全限制，預設的線上雲端地圖圖庫無法直接匯出為截圖。
+            </p>
+            <p class="text-sm font-bold text-[#ff9ef7] mb-2">請依照以下步驟解鎖截圖功能：</p>
+            <ol class="list-decimal list-inside text-sm text-gray-400 space-y-1 mb-4">
+                <li>點擊左側選單的<b class="text-white">「📥 下載替換地圖」</b></li>
+                <li>下載雲端中的 <b>FiveMMapLayered.png</b> 與 <b>cayo.png</b></li>
+                <li>使用「更換主/副地圖」按鈕上傳您剛下載的圖檔</li>
+                <li>重新框選截圖即可！</li>
+            </ol>
+            <div class="flex justify-end mt-2">
+                <button id="btn-understand-error" class="px-4 py-2 bg-red-900 text-white rounded hover:bg-red-800 font-bold transition-colors shadow">我知道了</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 側邊欄 (Sidebar) -->
     <div id="sidebar">
         <!-- 收合/展開按鈕 -->
@@ -323,7 +344,7 @@
         
         <div id="sidebar-content">
             <div class="flex justify-between items-end border-b-2 theme-border pb-2">
-                <h1 class="text-xl font-bold text-white">賽道規劃工具</h1>
+                <h1 class="text-xl font-bold text-white">麻糬賽道規劃工具</h1>
                 <span id="db-status" class="text-xs text-gray-400">連線中...</span>
             </div>
 
@@ -335,6 +356,7 @@
                         <button id="btn-upload-main-map" class="px-2 py-1 bg-gray-700 text-white text-xs font-bold rounded hover:bg-gray-600 flex-1">更換主地圖</button>
                         <button id="btn-upload-sub-map" class="px-2 py-1 bg-gray-700 text-white text-xs font-bold rounded hover:bg-gray-600 flex-1">更換副地圖</button>
                     </div>
+                    <a href="https://drive.google.com/drive/folders/1HhsI2kqCSHKBDdtnkTLW0_XsS0OJF6gM?usp=sharing" target="_blank" class="text-center px-2 py-1 bg-[#ff9ef7] text-black text-xs font-bold rounded hover:brightness-110 flex-1 no-underline block mt-1 transition-all">📥 下載替換地圖 (Google Drive)</a>
                 </div>
             </div>
             
@@ -421,7 +443,7 @@
             </div>
 
             <!-- 操作說明 -->
-            <div class="p-2 bg-[#222] rounded border border-gray-700">
+            <div class="p-2 bg-[#222] rounded border border-gray-700 flex flex-col gap-2">
                 <p class="text-xs text-gray-400 leading-relaxed">
                     <b>💡 專業鋼筆工具操作：</b><br>
                     • <b class="text-[#ff9ef7]">右鍵單擊線條</b>：於該處插入新節點<br>
@@ -432,6 +454,14 @@
                     • <b class="text-green-400">Ctrl + 左擊節點</b>：切換為隱藏輔助點<br>
                     • <b class="text-red-400">Alt + 左擊控制桿/節點</b>：刪除彎曲度<br>
                     • <b>左鍵雙擊節點</b>：刪除整個節點<br>
+                </p>
+                <div class="h-[1px] w-full bg-gray-700"></div>
+                <p class="text-xs text-gray-400 leading-relaxed">
+                    <b>🗺️ 替換地圖教學：</b><br>
+                    若遇到「截圖失敗」問題，請點擊上方<b class="text-[#ff9ef7]">「下載替換地圖」</b>前往雲端下載檔案。<br>
+                    • 主地圖請上傳：<b class="text-white">FiveMMapLayered.png</b><br>
+                    • 副地圖請上傳：<b class="text-white">cayo.png</b><br>
+                    上傳完成後即可解鎖高畫質截圖功能！
                 </p>
             </div>
         </div>
@@ -1207,7 +1237,7 @@
                 document.getElementById('btn-download-screenshot').href = dataUrl;
                 document.getElementById('screenshot-modal').classList.remove('hidden');
             } catch (err) {
-                showToast("❌ 截圖失敗：預設圖床受瀏覽器安全限制。請在左側選單「更換主地圖」上傳本地圖檔即可解鎖截圖功能！");
+                document.getElementById('screenshot-error-modal').classList.remove('hidden');
                 console.error(err);
             }
             setMode('idle');
@@ -1234,6 +1264,10 @@
                 document.getElementById('screenshot-modal').classList.add('hidden');
                 document.getElementById('screenshot-preview-img').src = "";
             });
+            
+            const closeErrorModal = () => document.getElementById('screenshot-error-modal').classList.add('hidden');
+            document.getElementById('btn-close-error').addEventListener('click', closeErrorModal);
+            document.getElementById('btn-understand-error').addEventListener('click', closeErrorModal);
 
             const uploadMainInput = document.getElementById('upload-main-map-input');
             const uploadSubInput = document.getElementById('upload-sub-map-input');
