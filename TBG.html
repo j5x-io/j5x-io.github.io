@@ -60,12 +60,22 @@
     <link rel="stylesheet" href="./tokens.css">
     <link rel="stylesheet" href="./tool-theme.css">
 </head>
-<body class="h-screen w-screen flex flex-col md:flex-row">
+<body class="h-screen w-screen flex flex-col">
 
-    <aside class="w-full md:w-80 bg-neutral-950 border-b md:border-b-0 md:border-r border-theme flex flex-col z-20 shrink-0 shadow-[4px_0_20px_rgba(0,0,0,0.8)] h-screen overflow-y-auto">
+    <nav class="j5-toolbar" aria-label="工具導覽">
+        <a class="j5-tool-brand" href="./index.html">
+            <img class="j5-tool-logo" src="./assets/dx-logo.png" alt="">
+            <span>大熊寶殿 GTARP 工具庫</span>
+        </a>
+        <a class="j5-tool-back" href="./index.html" aria-label="返回工具庫"><span aria-hidden="true">←</span><span>返回工具庫</span></a>
+    </nav>
+
+    <div class="j5-tool-shell flex flex-col md:flex-row overflow-auto md:overflow-hidden">
+
+    <aside class="w-full md:w-80 bg-neutral-950 border-b md:border-b-0 md:border-r border-theme flex flex-col z-20 shrink-0 shadow-[4px_0_20px_rgba(0,0,0,0.8)] h-auto md:h-full overflow-y-auto">
         <div class="p-6 flex-grow flex flex-col">
             <div class="mb-6">
-                <h1 class="text-3xl font-black text-theme tracking-widest drop-shadow-theme mb-1">大熊寶店</h1>
+                <h1 class="text-3xl font-black text-theme tracking-widest drop-shadow-theme mb-1">大熊寶殿</h1>
                 <h2 class="text-sm text-gray-400 font-bold tracking-widest">晉級賽程圖表工具</h2>
             </div>
             
@@ -149,6 +159,7 @@
             </div>
         </div>
     </main>
+    </div>
 
     <!-- Modal: 加入替補/魔王 -->
     <div id="customPrompt" class="fixed inset-0 bg-black/80 z-50 hidden items-center justify-center backdrop-blur-sm transition-opacity">

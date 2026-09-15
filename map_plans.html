@@ -50,7 +50,7 @@
         /* 畫布容器設定 */
         #canvas-container {
             width: 100vw;
-            height: 100vh;
+            height: calc(100vh - 68px);
             cursor: grab;
         }
         #canvas-container.panning { cursor: grabbing !important; }
@@ -60,7 +60,7 @@
         /* 頂部狀態列 */
         #status-bar {
             position: absolute;
-            top: 0;
+            top: 68px;
             left: 50%;
             transform: translateX(-50%);
             background: rgba(30, 30, 30, 0.9);
@@ -79,9 +79,9 @@
         /* --- 抽屜式側邊欄 (Sidebar) --- */
         #sidebar {
             position: fixed;
-            top: 0;
+            top: 68px;
             left: 0;
-            height: 100vh;
+            height: calc(100vh - 68px);
             width: 350px;
             background: rgba(30, 30, 30, 0.95);
             border-right: 2px solid #ff9ef7;
@@ -245,6 +245,14 @@
     <link rel="stylesheet" href="./tool-theme.css">
 </head>
 <body>
+
+    <nav class="j5-toolbar" aria-label="工具導覽">
+        <a class="j5-tool-brand" href="./index.html">
+            <img class="j5-tool-logo" src="./assets/dx-logo.png" alt="">
+            <span>大熊寶殿 GTARP 工具庫</span>
+        </a>
+        <a class="j5-tool-back" href="./index.html" aria-label="返回工具庫"><span aria-hidden="true">←</span><span>返回工具庫</span></a>
+    </nav>
 
     <!-- 載入中提示畫面 -->
     <div id="loading">
