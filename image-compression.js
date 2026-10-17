@@ -61,5 +61,28 @@
     }
     return best;
   }
-  window.J5XImageCompression = {compress};
+  async function compressToTarget(canvas, original, format, quality, unchangedSize, targetBytes) {
+    const bestInitial = await compress(canvas, original, format, quality, unchangedSize);
+    const target = Number.isFinite(targetBytes) && targetBytes > 0 ? Math.floor(targetBytes) : null;
+    if (!target || bestInitial.size <= target || format === 'image/png') {
+      return {blob: bestInitial, targetBytes: target, met: !target || bestInitial.size <= target};
+    }
+    // Search encoding quality only; never change the canvas dimensions or selected format.
+    const encode = value => new Promise((resolve, reject) => canvas.toBlob(blob => {
+      if (!blob || blob.type !== format) reject(new Error('圖片壓縮失敗或格式不受支援'));
+      else resolve(blob);
+    }, format, value / 100));
+    let best = bestInitial, low = 1, high = Math.min(100, Math.max(1, Math.floor(quality))), fitting = null;
+    const smallest = await encode(low);
+    if (smallest.size < best.size) best = smallest;
+    if (smallest.size > target) return {blob: best, targetBytes: target, met: false};
+    fitting = smallest;
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2), candidate = await encode(middle);
+      if (candidate.size <= target) { fitting = candidate; low = middle + 1; }
+      else high = middle - 1;
+    }
+    return {blob: fitting, targetBytes: target, met: true};
+  }
+  window.J5XImageCompression = {compress, compressToTarget};
 })();
